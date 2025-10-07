@@ -12,6 +12,7 @@ SILENCE_THRESHOLD="-50dB"  # Soglia per rilevare il silenzio
 SILENCE_DURATION="2.0"     # Durata minima del silenzio in secondi
 AUDIO_FORMAT="mp3"         # Formato output (mp3, wav, flac, etc.)
 AUDIO_QUALITY="80k"       # Bitrate per MP3
+WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
 
 # Funzione per mostrare l'aiuto
 show_help() {
@@ -103,7 +104,7 @@ echo "Soglia silenzio: $SILENCE_THRESHOLD"
 echo "Durata silenzio: ${SILENCE_DURATION}s"
 # Rileva se il servizio Whisper API è attivo
 if [ -n "$(docker container ls -f name=aio-gpu-vulkan-api -q)" ]; then
-    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq '.data[] | select(.id == "whisper-large-q5_0")' 2>/dev/null)" ]; then
+    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq '.data[] | select(.id == "${WHISPER_MODEL}")' 2>/dev/null)" ]; then
         echo ""
         echo "Rilevato servizio Whisper API in esecuzione. Verrà generata anche la trascrizione."
         USE_WHISPER=1
@@ -193,7 +194,7 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
             ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "speechnorm=e=12.5:r=0.0001:l=1" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="whisper-large-q5_0" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "speechnorm=e=12.5:r=0.0001:l=1" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
     fi
 
     if [[ $? -eq 0 ]]; then
