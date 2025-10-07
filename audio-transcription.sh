@@ -104,7 +104,7 @@ echo "Soglia silenzio: $SILENCE_THRESHOLD"
 echo "Durata silenzio: ${SILENCE_DURATION}s"
 # Rileva se il servizio Whisper API è attivo
 if [ -n "$(docker container ls -f name=aio-gpu-vulkan-api -q)" ]; then
-    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq '.data[] | select(.id == "${WHISPER_MODEL}")' 2>/dev/null)" ]; then
+    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq --arg whisper_model $WHISPER_MODEL '.data[] | select(.id == $whisper_model)' 2>/dev/null)" ]; then
         echo ""
         echo "Rilevato servizio Whisper API in esecuzione. Verrà generata anche la trascrizione."
         USE_WHISPER=1
