@@ -13,6 +13,7 @@ SILENCE_DURATION="2.0"     # Durata minima del silenzio in secondi
 AUDIO_FORMAT="mp3"         # Formato output (mp3, wav, flac, etc.)
 AUDIO_QUALITY="80k"       # Bitrate per MP3
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
+AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-30dB:detection=peak,equalizer=f=1000:t=q:w=1:g=10,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
 
 # Funzione per mostrare l'aiuto
 show_help() {
@@ -185,16 +186,16 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         else
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "speechnorm=e=12.5:r=0.0001:l=1" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' > Trascrizione.txt
     fi
 
     if [[ $? -eq 0 ]]; then
