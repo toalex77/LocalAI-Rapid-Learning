@@ -184,16 +184,16 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
         else
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn "$OUTPUT_FILE" -v quiet
+            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "speechnorm=e=12.5:r=0.0001:l=1" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="whisper-large-q5_0" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "speechnorm=e=12.5:r=0.0001:l=1" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="whisper-large-q5_0" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
     fi
 
     if [[ $? -eq 0 ]]; then
