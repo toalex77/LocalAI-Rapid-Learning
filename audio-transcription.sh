@@ -129,7 +129,7 @@ echo ""
 # Step 2: Rileva i silenzi
 echo "=== STEP 2: Rilevamento silenzi ==="
 echo "Rilevamento silenzi in corso... (può richiedere alcuni minuti)"
-SILENCE_OUTPUT="$(ffmpeg -i "$INPUT_FILE" -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - 2>&1 | grep "silence_\(start\|end\)")"
+SILENCE_OUTPUT="$(ffmpeg -nostdin -i "$INPUT_FILE" -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - < /dev/null 2>&1 | grep "silence_\(start\|end\)")"
 SILENCE_DATA="$(echo "$SILENCE_OUTPUT" | grep "silence_\(start\|end\)" | sed 's/.*silence_\(start\|end\): \([0-9.]*\).*/\1: \2/')"
 
 # Step 3: Calcola i segmenti audio
@@ -213,13 +213,13 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         else
-            ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         fi
     else
         ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
