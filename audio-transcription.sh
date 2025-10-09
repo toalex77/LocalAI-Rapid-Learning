@@ -6,8 +6,8 @@
 # Configurazione predefinita
 INPUT_FILE=""
 OUTPUT_DIR="./audio_segments"
-MIN_DURATION=2400  # 40 minuti in secondi
-MAX_DURATION=5400  # 90 minuti in secondi
+MIN_DURATION=1200  # 20 minuti in secondi
+MAX_DURATION=2400  # 40 minuti in secondi
 SILENCE_THRESHOLD="-50dB"  # Soglia per rilevare il silenzio
 SILENCE_DURATION="2.0"     # Durata minima del silenzio in secondi
 AUDIO_FORMAT="mp3"         # Formato output (mp3, wav, flac, etc.)
@@ -22,14 +22,14 @@ show_help() {
     echo "Opzioni:"
     echo "  -i FILE       File video di input (obbligatorio)"
     echo "  -o DIR        Directory di output (default: ./audio_segments)"
-    echo "  -min SECONDS  Durata minima spezzone in secondi (default: 2400 = 40min)"
-    echo "  -max SECONDS  Durata massima spezzone in secondi (default: 5400 = 90min)"
+    echo "  -min SECONDS  Durata minima spezzone in secondi (default: 1200 = 20min)"
+    echo "  -max SECONDS  Durata massima spezzone in secondi (default: 2400 = 40min)"
     echo "  -st THRESHOLD Soglia silenzio in dB (default: -50dB)"
     echo "  -sd SECONDS   Durata minima silenzio in secondi (default: 2.0)"
     echo "  -h            Mostra questo aiuto"
     echo ""
     echo "Esempio:"
-    echo "  $0 -i video.mp4 -o output -min 2400 -max 5400"
+    echo "  $0 -i video.mp4 -o output -min 1200 -max 2400"
 }
 
 # Funzione per convertire secondi in formato HH:MM:SS
@@ -110,6 +110,7 @@ if [ -n "$(docker container ls -f name=aio-gpu-vulkan-api -q)" ]; then
         echo "Rilevato servizio Whisper API in esecuzione. Verrà generata anche la trascrizione."
         USE_WHISPER=1
         touch Trascrizione.txt
+        truncate -s 0 Trascrizione.txt
     fi
 fi
 if [ $USE_WHISPER -eq 0 ]; then
@@ -133,34 +134,60 @@ SILENCE_DATA="$(echo "$SILENCE_OUTPUT" | grep "silence_\(start\|end\)" | sed 's/
 
 # Step 3: Calcola i segmenti audio
 echo "=== STEP 3: Calcolo segmenti audio ==="
-
-SEGMENT_START=0
-SEGMENT_SEARCH=0 # 0 = cerca inizio, 1 = cerca fine
+VALID_SEGMENTS=()
+SILENCE_START=0
+SILENCE_END=0
+PREV_SILENCE_END=0
 while IFS= read -r SILENCE_LINE; do
-    if [[ $SILENCE_LINE == start* ]] && [[ $SEGMENT_SEARCH -eq 0 ]]; then
-        SEGMENT_START=${SILENCE_LINE//start: /}
-        SEGMENT_SEARCH=1
-    elif [[ $SILENCE_LINE == end* ]] && [[ $SEGMENT_SEARCH -eq 1 ]]; then
-        SEGMENT_END=${SILENCE_LINE//end: /}
-        DURATION=$(echo "$SEGMENT_END - $SEGMENT_START" | bc)
-        DURATION=${DURATION%.*} # Converti in intero
-        if (( $(bc <<< "$DURATION > 0") )); then
-            if (( DURATION >= MIN_DURATION && DURATION <= MAX_DURATION )); then
-                VALID_SEGMENTS+=("$SEGMENT_START $SEGMENT_END")
-                SEGMENT_SEARCH=0
-            fi
+    if [[ $SILENCE_LINE == start* ]]; then
+        SILENCE_START=${SILENCE_LINE//start: /}
+    elif [[ $SILENCE_LINE == end* ]]; then
+        SILENCE_END=${SILENCE_LINE//end: /}
+        if (( $(bc <<< "$SILENCE_START > $PREV_SILENCE_END") )); then
+            VALID_SEGMENTS+=("$PREV_SILENCE_END $SILENCE_START")
+            PREV_SILENCE_END=$SILENCE_END
         fi
     fi
 done <<< "$SILENCE_DATA"
-# Aggiungi l'ultimo segmento se necessario
-RESIDUE_DURATION=$(echo "$TOTAL_DURATION - ${SEGMENT_END%.*}" | bc)
-RESIDUE_DURATION=${RESIDUE_DURATION%.*} # Converti in intero
-if [ "$RESIDUE_DURATION" -ne 0 ]; then
-    VALID_SEGMENTS+=("$SEGMENT_END $TOTAL_DURATION")
+if (( $(bc <<< "$TOTAL_DURATION > $PREV_SILENCE_END") )); then
+    VALID_SEGMENTS+=("$PREV_SILENCE_END $TOTAL_DURATION")
+fi
+MERGED_SEGMENTS=()
+CURRENT_START=0
+CURRENT_END=0
+SEGMENT_SEARCH=0 # 0 = cerca inizio, 1 = cerca fine
+for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
+    read -r SEGMENT_START SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+    if [ $SEGMENT_SEARCH -eq 0 ]; then
+        CURRENT_START=$SEGMENT_START
+        CURRENT_END=$SEGMENT_END
+        SEGMENT_SEARCH=1
+        continue
+    fi
+    CURRENT_DURATION=$(bc <<< "$CURRENT_END - $CURRENT_START")
+    POTENTIAL_DURATION=$(bc <<< "$SEGMENT_END - $CURRENT_START")
+
+    if (( $(bc <<< "$POTENTIAL_DURATION <= $MAX_DURATION") )); then
+        CURRENT_END=$SEGMENT_END
+        continue
+    fi
+
+    if (( $(bc <<< "$CURRENT_DURATION >= $MIN_DURATION") )); then
+        MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
+        CURRENT_START=$SEGMENT_START
+        CURRENT_END=$SEGMENT_END
+    else
+        CURRENT_END=$SEGMENT_END
+        MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
+        SEGMENT_SEARCH=0
+    fi
+done
+if [ $SEGMENT_SEARCH -eq 1 ]; then
+    MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
 fi
 
 # Step 4: Estrazione degli spezzoni
-if [[ ${#VALID_SEGMENTS[@]} -eq 0 ]]; then
+if [[ ${#MERGED_SEGMENTS[@]} -eq 0 ]]; then
     echo "Nessun segmento valido trovato. Prova ad aggiustare i parametri:"
     echo "  - Ridurre la soglia di silenzio (-st)"
     echo "  - Modificare la durata minima del silenzio (-sd)"
@@ -170,11 +197,11 @@ fi
 
 echo "=== STEP 4: Estrazione spezzoni audio ==="
 
-for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
-    read -r start_time end_time <<< "${VALID_SEGMENTS[i]}"
+for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
+    read -r start_time end_time <<< "${MERGED_SEGMENTS[i]}"
 
 
-    echo "Estraendo spezzone $((i+1))/${#VALID_SEGMENTS[@]}..."
+    echo "Estraendo spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
     echo "  Da: $(seconds_to_time "${start_time%.*}")"
     echo "  A: $(seconds_to_time "${end_time%.*}")"
 
@@ -195,7 +222,7 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
             ffmpeg -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' > Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
     fi
 
     if [[ $? -eq 0 ]]; then
@@ -207,7 +234,7 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
 done
 
 echo "=== COMPLETATO ==="
-echo "Spezzoni estratti: ${#VALID_SEGMENTS[@]}"
+echo "Spezzoni estratti: ${#MERGED_SEGMENTS[@]}"
 if [ $USE_WHISPER -eq 0 ]; then
     echo "Directory output: $OUTPUT_DIR"
 fi
