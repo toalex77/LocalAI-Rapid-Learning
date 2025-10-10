@@ -129,7 +129,7 @@ echo ""
 # Step 2: Rileva i silenzi
 echo "=== STEP 2: Rilevamento silenzi ==="
 echo "Rilevamento silenzi in corso... (può richiedere alcuni minuti)"
-SILENCE_OUTPUT="$(ffmpeg -nostdin -i "$INPUT_FILE" -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - < /dev/null 2>&1 | grep "silence_\(start\|end\)")"
+SILENCE_OUTPUT="$(ffmpeg -nostdin -i "$INPUT_FILE" -vn -sn -dn -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - < /dev/null 2>&1 | grep "silence_\(start\|end\)")"
 SILENCE_DATA="$(echo "$SILENCE_OUTPUT" | grep "silence_\(start\|end\)" | sed 's/.*silence_\(start\|end\): \([0-9.]*\).*/\1: \2/')"
 
 # Step 3: Calcola i segmenti audio
@@ -157,7 +157,9 @@ CURRENT_START=0
 CURRENT_END=0
 SEGMENT_SEARCH=0 # 0 = cerca inizio, 1 = cerca fine
 for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
-    read -r SEGMENT_START SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+    read -r FLOAT_SEGMENT_START FLOAT_SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+    SEGMENT_START=${FLOAT_SEGMENT_START%.*}
+    SEGMENT_END=${FLOAT_SEGMENT_END%.*}
     if [ $SEGMENT_SEARCH -eq 0 ]; then
         CURRENT_START=$SEGMENT_START
         CURRENT_END=$SEGMENT_END
@@ -204,7 +206,9 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
     echo "Estraendo spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
     echo "  Da: $(seconds_to_time "${start_time%.*}")"
     echo "  A: $(seconds_to_time "${end_time%.*}")"
-
+    if [ $i -lt 7 ]; then
+        continue
+    fi
     if [ $USE_WHISPER -eq 0 ]; then
         # Crea directory di output
         mkdir -p "$OUTPUT_DIR"
@@ -213,16 +217,17 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -sn -dn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
-            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -sn -dn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
-            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -sn -dn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         else
-            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -sn -dn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -i "$INPUT_FILE" -ss "$start_time" -to "$end_time" -vn -sn -dn -acodec libmp3lame -ac 1 -ar 11025 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        sleep 0.1
     fi
 
     if [[ $? -eq 0 ]]; then
