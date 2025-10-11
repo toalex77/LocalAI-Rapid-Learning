@@ -131,8 +131,6 @@ if [ -n "$(docker container ls -f name=aio-gpu-vulkan-api -q)" ]; then
         echo ""
         echo "Rilevato servizio Whisper API in esecuzione. Verrà generata anche la trascrizione."
         USE_WHISPER=1
-        touch Trascrizione.txt
-        truncate -s 0 Trascrizione.txt
     fi
 fi
 if [ $USE_WHISPER -eq 0 ]; then
@@ -297,6 +295,10 @@ done
 wait
 if [ $USE_WHISPER -eq 1 ]; then
     echo "=== STEP 5: Trascrizione audio ==="
+
+    touch Trascrizione.txt
+    truncate -s 0 Trascrizione.txt
+
     for TMP_FILE in "${TMP_FILES[@]}"; do
         echo "Trascrivo $(basename "$TMP_FILE")..."
         curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" ${WHISPER_API_OPTIONS} | jq -r '.segments[].text' >> Trascrizione.txt
