@@ -1,4 +1,10 @@
 #!/bin/bash
+set -euo pipefail
+
+# Controlla la presenza delle dipendenze
+for cmd in ffmpeg ffprobe jq curl; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Errore: comando '$cmd' non trovato"; exit 1; }
+done
 
 # Script per estrarre spezzoni audio da video lunghi
 # Basato su rilevamento automatico dei silenzi
@@ -6,14 +12,18 @@
 # Configurazione predefinita
 INPUT_FILE=""
 OUTPUT_DIR="./audio_segments"
-MIN_DURATION=1200  # 20 minuti in secondi
-MAX_DURATION=2400  # 40 minuti in secondi
-SILENCE_THRESHOLD="-50dB"  # Soglia per rilevare il silenzio
-SILENCE_DURATION="2.0"     # Durata minima del silenzio in secondi
+AUDIO_LANGUAGE="it"  # Lingua per la trascrizione (it, en, etc.)
+MIN_DURATION=480  # 8 minuti in secondi
+MAX_DURATION=720  # 12 minuti in secondi
+SILENCE_THRESHOLD="-35dB"  # Soglia per rilevare il silenzio
+SILENCE_DURATION="0.5"     # Durata minima del silenzio in secondi
 AUDIO_FORMAT="mp3"         # Formato output (mp3, wav, flac, etc.)
-AUDIO_QUALITY="80k"       # Bitrate per MP3
+AUDIO_QUALITY="32k"       # Bitrate per MP3
+SAMPLERATE="16000"      # Frequenza di campionamento
+WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
-AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=0:stop_periods=-1:stop_duration=0.5:stop_threshold=-35dB:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
+WHISPER_API_OPTIONS="-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}" # Opzioni API Whisper
+AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
 
 # Funzione per mostrare l'aiuto
 show_help() {
@@ -22,14 +32,14 @@ show_help() {
     echo "Opzioni:"
     echo "  -i FILE       File video di input (obbligatorio)"
     echo "  -o DIR        Directory di output (default: ./audio_segments)"
-    echo "  -min SECONDS  Durata minima spezzone in secondi (default: 1200 = 20min)"
-    echo "  -max SECONDS  Durata massima spezzone in secondi (default: 2400 = 40min)"
-    echo "  -st THRESHOLD Soglia silenzio in dB (default: -50dB)"
-    echo "  -sd SECONDS   Durata minima silenzio in secondi (default: 2.0)"
+    echo "  -min SECONDS  Durata minima spezzone in secondi (default: ${MIN_DURATION} = $(seconds_to_time "${MIN_DURATION}"))"
+    echo "  -max SECONDS  Durata massima spezzone in secondi (default: ${MAX_DURATION} = $(seconds_to_time "${MAX_DURATION}"))"
+    echo "  -st THRESHOLD Soglia silenzio in dB (default: ${SILENCE_THRESHOLD})"
+    echo "  -sd SECONDS   Durata minima silenzio in secondi (default: ${SILENCE_DURATION})"
     echo "  -h            Mostra questo aiuto"
     echo ""
     echo "Esempio:"
-    echo "  $0 -i video.mp4 -o output -min 1200 -max 2400"
+    echo "  $0 -i video.mp4 -o output -min ${MIN_DURATION} -max ${MAX_DURATION}"
 }
 
 # Funzione per convertire secondi in formato HH:MM:SS
@@ -96,7 +106,6 @@ if [[ ! -f "$INPUT_FILE" ]]; then
 fi
 
 USE_WHISPER=0
-WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 
 echo "=== CONFIGURAZIONE ==="
 echo "File input: $INPUT_FILE"
@@ -160,6 +169,9 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
     read -r FLOAT_SEGMENT_START FLOAT_SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
     SEGMENT_START=${FLOAT_SEGMENT_START%.*}
     SEGMENT_END=${FLOAT_SEGMENT_END%.*}
+    if (( SEGMENT_START == SEGMENT_END )); then
+        continue
+    fi
     if [ $SEGMENT_SEARCH -eq 0 ]; then
         CURRENT_START=$SEGMENT_START
         CURRENT_END=$SEGMENT_END
@@ -214,7 +226,7 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar 16000 -q:a 9 -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
             ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
@@ -223,7 +235,7 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
             ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
         fi
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar 16000 -q:a 9 -b:a "$AUDIO_QUALITY" -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- -F backend="vulkan-whisper" -F model="${WHISPER_MODEL}" -F model_size=large -F "beam_size=10" -F "without_timestamps=true" -F "multilingual=true" -F language=it | jq -r '.segments[].text' >> Trascrizione.txt
+        ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -q:a 9 -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- ${WHISPER_API_OPTIONS} | jq -r '.segments[].text' >> Trascrizione.txt
         sleep 0.1
     fi
 
