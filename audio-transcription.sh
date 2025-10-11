@@ -29,9 +29,11 @@ AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,
 
 # Elimina directory temporanea e file contenuti in essa
 cleanup() {
-    if [ -n "$TMP_SEGMENTS_DIR" ]; then
-        if [ -d "$TMP_SEGMENTS_DIR" ]; then
-            rm -rf "$TMP_SEGMENTS_DIR"
+    if [[ -v TMP_SEGMENTS_DIR ]]; then
+        if [ -n "$TMP_SEGMENTS_DIR" ]; then
+            if [ -d "$TMP_SEGMENTS_DIR" ]; then
+                rm -rf "$TMP_SEGMENTS_DIR"
+            fi
         fi
     fi
 }
