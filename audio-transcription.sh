@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Controlla la presenza delle dipendenze
-for cmd in ffmpeg ffprobe bc jq curl; do
+for cmd in ffmpeg ffprobe bc jq curl nproc; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "Errore: comando '$cmd' non trovato"; exit 1; }
 done
 
@@ -10,6 +10,8 @@ done
 # Basato su rilevamento automatico dei silenzi
 
 # Configurazione predefinita
+MAX_JOBS=$(nproc --all)  # Numero massimo di processi ffmpeg in parallelo (modifica secondo le tue CPU)
+JOBS=0
 INPUT_FILE=""
 OUTPUT_DIR="./audio_segments"
 AUDIO_LANGUAGE="it"  # Lingua per la trascrizione (it, en, etc.)
@@ -24,6 +26,17 @@ WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
 WHISPER_API_OPTIONS="-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}" # Opzioni API Whisper
 AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
+
+# Elimina directory temporanea e file contenuti in essa
+cleanup() {
+    if [ -n "$TMP_SEGMENTS_DIR" ]; then
+        if [ -d "$TMP_SEGMENTS_DIR" ]; then
+            rm -rf "$TMP_SEGMENTS_DIR"
+        fi
+    fi
+}
+
+trap cleanup EXIT ERR
 
 # Funzione per mostrare l'aiuto
 show_help() {
@@ -147,6 +160,7 @@ VALID_SEGMENTS=()
 SILENCE_START=0
 SILENCE_END=0
 PREV_SILENCE_END=0
+# In questa fase è necessario lavorare con numeri in virgola mobile
 while IFS= read -r SILENCE_LINE; do
     if [[ $SILENCE_LINE == start* ]]; then
         SILENCE_START=${SILENCE_LINE//start: /}
@@ -210,11 +224,15 @@ if [[ ${#MERGED_SEGMENTS[@]} -eq 0 ]]; then
 fi
 
 echo "=== STEP 4: Estrazione spezzoni audio ==="
+if [ $USE_WHISPER -eq 1 ]; then
+    declare -a TMP_FILES=()
+    TMP_SEGMENTS_DIR=$(mktemp -d /dev/shm/audio_segments.XXXXXX)
+fi
 for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
     read -r start_time end_time <<< "${MERGED_SEGMENTS[i]}"
 
 
-    echo "Estraendo spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
+    echo "Accodo spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
     echo "  Da: $(seconds_to_time "${start_time%.*}")"
     echo "  A: $(seconds_to_time "${end_time%.*}")"
 
@@ -225,27 +243,65 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         OUTPUT_FILE="$OUTPUT_DIR/spezzone_$(printf "%02d" $((i+1)))_$(seconds_to_time "${start_time%.*}" | tr ':' '-').${AUDIO_FORMAT}"
         echo "  File: $(basename "$OUTPUT_FILE")"
 
-        if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
-            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
-        elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
-            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
-        elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
-            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
-        else
-            ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+        (
+            if [[ "$AUDIO_FORMAT" == "mp3" ]]; then
+                ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -b:a "$AUDIO_QUALITY" -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            elif [[ "$AUDIO_FORMAT" == "wav" ]]; then
+                ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec pcm_s16le -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            elif [[ "$AUDIO_FORMAT" == "flac" ]]; then
+                ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec flac -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            else
+                ffmpeg -nostdin -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -filter:a "$AUDIO_FILTERS" "$OUTPUT_FILE" -v quiet
+            fi
+            status=$?
+            echo "Spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
+            if [[ $status -eq 0 ]]; then
+                echo "  ✓ Completato"
+            else
+                echo "  ✗ Errore durante l'estrazione"
+            fi
+
+        ) &
+
+        JOBS=$((JOBS + 1))
+        if [[ $JOBS -ge $MAX_JOBS ]]; then
+            wait -n
+            JOBS=$((JOBS - 1))
         fi
+        wait
     else
-        ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -q:a 9 -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 | curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@- ${WHISPER_API_OPTIONS} | jq -r '.segments[].text' >> Trascrizione.txt
-        sleep 0.1
+        TMP_FILE="$TMP_SEGMENTS_DIR/segment_$(printf "%04d" $i).mp3"
+        TMP_FILES+=("$TMP_FILE")
+        (
+            ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -q:a 9 -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" "$TMP_FILE"
+            status=$?
+            echo "Spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
+            if [[ $status -eq 0 ]]; then
+                echo "  ✓ Completato"
+            else
+                echo "  ✗ Errore durante l'estrazione"
+            fi
+        ) &
+        JOBS=$((JOBS + 1))
+        if [[ $JOBS -ge $MAX_JOBS ]]; then
+            wait -n
+            JOBS=$((JOBS - 1))
+        fi
     fi
 
-    if [[ $? -eq 0 ]]; then
-        echo "  ✓ Completato"
-    else
-        echo "  ✗ Errore durante l'estrazione"
-    fi
     echo ""
 done
+
+wait
+if [ $USE_WHISPER -eq 1 ]; then
+    echo "=== STEP 5: Trascrizione audio ==="
+    for TMP_FILE in "${TMP_FILES[@]}"; do
+        echo "Trascrivo $(basename "$TMP_FILE")..."
+        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" ${WHISPER_API_OPTIONS} | jq -r '.segments[].text' >> Trascrizione.txt
+    done
+    cleanup "$TMP_SEGMENTS_DIR"
+    echo "Trascrizione completata!"
+fi
 
 echo "=== COMPLETATO ==="
 echo "Spezzoni estratti: ${#MERGED_SEGMENTS[@]}"
