@@ -273,7 +273,9 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         TMP_FILE="$TMP_SEGMENTS_DIR/segment_$(printf "%04d" $i).mp3"
         TMP_FILES+=("$TMP_FILE")
         (
-            ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -q:a 9 -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" "$TMP_FILE"
+            # Inspiegabilmente, quando ffmpeg scrive su pipe, Whisper riconosce meglio l'audio all'inizio del file.
+            # ¯\_(ツ)_/¯
+            ffmpeg -nostdin -loglevel panic -hide_banner -y -ss "$start_time" -to "$end_time" -i "$INPUT_FILE" -vn -sn -dn -acodec libmp3lame -ac 1 -ar "$SAMPLERATE" -q:a 9 -v quiet -f mp3 -filter:a "$AUDIO_FILTERS" pipe:1 >"$TMP_FILE"
             status=$?
             echo "Spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
             if [[ $status -eq 0 ]]; then
