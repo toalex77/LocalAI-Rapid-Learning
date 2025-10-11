@@ -178,15 +178,15 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
         SEGMENT_SEARCH=1
         continue
     fi
-    CURRENT_DURATION=$(bc <<< "$CURRENT_END - $CURRENT_START")
-    POTENTIAL_DURATION=$(bc <<< "$SEGMENT_END - $CURRENT_START")
+    CURRENT_DURATION=$(( CURRENT_END - CURRENT_START ))
+    POTENTIAL_DURATION=$(( SEGMENT_END - CURRENT_START ))
 
-    if (( $(bc <<< "$POTENTIAL_DURATION <= $MAX_DURATION") )); then
+    if (( POTENTIAL_DURATION <= MAX_DURATION )); then
         CURRENT_END=$SEGMENT_END
         continue
     fi
 
-    if (( $(bc <<< "$CURRENT_DURATION >= $MIN_DURATION") )); then
+    if (( CURRENT_DURATION >= MIN_DURATION )); then
         MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
         CURRENT_START=$SEGMENT_START
         CURRENT_END=$SEGMENT_END
