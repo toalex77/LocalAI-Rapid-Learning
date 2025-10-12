@@ -27,6 +27,7 @@ WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
 WHISPER_API_OPTIONS=(-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}) # Opzioni API Whisper
 AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${REMOVE_SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${REMOVE_SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
+TRANSCRIPTION_FILE="Trascrizione.txt"
 
 # Elimina directory temporanea e file contenuti in essa
 cleanup() {
@@ -39,7 +40,15 @@ cleanup() {
     fi
 }
 
+trap_error() {
+    echo "Errore durante l'esecuzione dello script."
+    if [ -e "${TRANSCRIPTION_FILE}" ]; then
+        echo "Trascrizione parziale salvata in: ${TRANSCRIPTION_FILE%.*}_errore.${TRANSCRIPTION_FILE##*.}"
+        mv "${TRANSCRIPTION_FILE}" "${TRANSCRIPTION_FILE%.*}_errore.${TRANSCRIPTION_FILE##*.}"
+    fi
+}
 trap cleanup EXIT ERR
+trap trap_error ERR
 
 # Funzione per mostrare l'aiuto
 show_help() {
@@ -299,15 +308,16 @@ wait
 if [ $USE_WHISPER -eq 1 ]; then
     echo "=== STEP 5: Trascrizione audio ==="
 
-    touch Trascrizione.txt
-    truncate -s 0 Trascrizione.txt
+    touch "${TRANSCRIPTION_FILE}.part"
+    truncate -s 0 "${TRANSCRIPTION_FILE}.part"
     i=1
     for TMP_FILE in "${TMP_FILES[@]}"; do
         echo "Trascrivo segmento $i/${#TMP_FILES[@]} ($(basename "$TMP_FILE"))..."
-        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" "${WHISPER_API_OPTIONS[@]}" | jq -r '.segments[].text' >> Trascrizione.txt
+        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" "${WHISPER_API_OPTIONS[@]}" | jq -r '.segments[].text' >> "${TRANSCRIPTION_FILE}.part"
         i=$((i + 1))
     done
     cleanup "$TMP_SEGMENTS_DIR"
+    mv "${TRANSCRIPTION_FILE}.part" "${TRANSCRIPTION_FILE}"
     echo "Trascrizione completata!"
 fi
 
@@ -318,7 +328,7 @@ if [ $USE_WHISPER -eq 0 ]; then
 fi
 
 if [ $USE_WHISPER -eq 1 ]; then
-    echo "Trascrizione salvata in: Trascrizione.txt"
+    echo "Trascrizione salvata in: ${TRANSCRIPTION_FILE}"
 else
     echo "File generati:"
     ls -lh "$OUTPUT_DIR"/*.${AUDIO_FORMAT} 2>/dev/null || echo "Nessun file audio generato"
