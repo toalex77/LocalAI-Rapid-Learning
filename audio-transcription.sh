@@ -25,7 +25,7 @@ AUDIO_QUALITY="32k"       # Bitrate per MP3
 SAMPLERATE="16000"      # Frequenza di campionamento
 WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
-WHISPER_API_OPTIONS="-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}" # Opzioni API Whisper
+WHISPER_API_OPTIONS=(-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}) # Opzioni API Whisper
 AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${REMOVE_SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${REMOVE_SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
 
 # Elimina directory temporanea e file contenuti in essa
@@ -301,10 +301,11 @@ if [ $USE_WHISPER -eq 1 ]; then
 
     touch Trascrizione.txt
     truncate -s 0 Trascrizione.txt
-
+    i=1
     for TMP_FILE in "${TMP_FILES[@]}"; do
-        echo "Trascrivo $(basename "$TMP_FILE")..."
-        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" ${WHISPER_API_OPTIONS} | jq -r '.segments[].text' >> Trascrizione.txt
+        echo "Trascrivo segmento $i/${#TMP_FILES[@]} ($(basename "$TMP_FILE"))..."
+        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" "${WHISPER_API_OPTIONS[@]}" | jq -r '.segments[].text' >> Trascrizione.txt
+        i=$((i + 1))
     done
     cleanup "$TMP_SEGMENTS_DIR"
     echo "Trascrizione completata!"
