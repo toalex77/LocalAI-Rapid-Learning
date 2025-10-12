@@ -18,14 +18,15 @@ AUDIO_LANGUAGE="it"  # Lingua per la trascrizione (it, en, etc.)
 MIN_DURATION=480  # 8 minuti in secondi
 MAX_DURATION=720  # 12 minuti in secondi
 SILENCE_THRESHOLD="-35dB"  # Soglia per rilevare il silenzio
-SILENCE_DURATION="0.5"     # Durata minima del silenzio in secondi
+SILENCE_DURATION="1"     # Durata minima del silenzio in secondi
+REMOVE_SILENCE_DURATION="0.5"     # Durata minima del silenzio in secondi
 AUDIO_FORMAT="mp3"         # Formato output (mp3, wav, flac, etc.)
 AUDIO_QUALITY="32k"       # Bitrate per MP3
 SAMPLERATE="16000"      # Frequenza di campionamento
 WHISPER_API="http://localhost:8080/v1/audio/transcriptions"
 WHISPER_MODEL="whisper-large-turbo-q8_0" # Modello Whisper per trascrizione
 WHISPER_API_OPTIONS="-F backend=vulkan-whisper -F model=${WHISPER_MODEL} -F model_size=large -F beam_size=10 -F without_timestamps=true -F multilingual=true -F language=${AUDIO_LANGUAGE}" # Opzioni API Whisper
-AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
+AUDIO_FILTERS="afftdn=nr=0.21:nf=-25,highpass=f=80,equalizer=f=1000:t=q:w=1:g=6,silenceremove=start_periods=1:start_duration=${REMOVE_SILENCE_DURATION}:start_threshold=${SILENCE_THRESHOLD}:stop_periods=-1:stop_duration=${REMOVE_SILENCE_DURATION}:stop_threshold=${SILENCE_THRESHOLD}:detection=peak,loudnorm=I=-23:LRA=11:tp=-2" # Filtri audio per migliorare la qualità
 
 # Elimina directory temporanea e file contenuti in essa
 cleanup() {
