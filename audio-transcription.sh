@@ -10,6 +10,7 @@ done
 # Basato su rilevamento automatico dei silenzi
 
 # Configurazione predefinita
+DEBUG=0
 MAX_JOBS=$(nproc --all)  # Numero massimo di processi ffmpeg in parallelo (modifica secondo le tue CPU)
 JOBS=0
 INPUT_FILE=""
@@ -163,7 +164,12 @@ echo "=== STEP 2: Rilevamento silenzi ==="
 echo "Rilevamento silenzi in corso... (può richiedere alcuni minuti)"
 SILENCE_OUTPUT="$(ffmpeg -nostdin -i "$INPUT_FILE" -vn -sn -dn -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - < /dev/null 2>&1 | grep "silence_\(start\|end\)")"
 SILENCE_DATA="$(echo "$SILENCE_OUTPUT" | grep "silence_\(start\|end\)" | sed 's/.*silence_\(start\|end\): \([0-9.]*\).*/\1: \2/')"
-
+if [ $DEBUG -eq 1 ]; then
+    echo "Intervalli di silenzio rilevati:"
+    while IFS= read -r SILENCE_LINE; do
+        echo "$SILENCE_LINE"
+    done <<< "$SILENCE_DATA"
+fi
 # Step 3: Calcola i segmenti audio
 echo "=== STEP 3: Calcolo segmenti audio ==="
 VALID_SEGMENTS=()
@@ -222,6 +228,13 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
 done
 if [ $SEGMENT_SEARCH -eq 1 ]; then
     MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
+fi
+if [ $DEBUG -eq 1 ]; then
+    echo "Spezzoni finali calcolati:"
+    for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
+        read -r start_time end_time <<< "${MERGED_SEGMENTS[i]}"
+        echo "Spezzone $((i+1)): Da $(seconds_to_time "${start_time%.*}") a $(seconds_to_time "${end_time%.*}") - ${start_time} - ${end_time}"
+    done
 fi
 
 # Step 4: Estrazione degli spezzoni
