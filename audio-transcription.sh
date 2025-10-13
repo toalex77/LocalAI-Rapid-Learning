@@ -183,8 +183,11 @@ while IFS= read -r SILENCE_LINE; do
     elif [[ $SILENCE_LINE == end* ]]; then
         SILENCE_END=${SILENCE_LINE//end: /}
         if (( $(bc <<< "$SILENCE_START > $PREV_SILENCE_END") )); then
-            VALID_SEGMENTS+=("$PREV_SILENCE_END $SILENCE_START")
-            PREV_SILENCE_END=$SILENCE_END
+            # Uno spezzone deve durare almeno 1 secondo per essere considerato
+            if (( $(bc <<< "$SILENCE_START - $PREV_SILENCE_END >= 1") )); then
+                VALID_SEGMENTS+=("$PREV_SILENCE_END $SILENCE_START")
+                PREV_SILENCE_END=$SILENCE_END
+            fi
         fi
     fi
 done <<< "$SILENCE_DATA"
@@ -330,8 +333,18 @@ if [ $USE_WHISPER -eq 1 ]; then
     truncate -s 0 "${TRANSCRIPTION_FILE}.part"
     i=1
     for TMP_FILE in "${TMP_FILES[@]}"; do
-        echo "Trascrivo segmento $i/${#TMP_FILES[@]} ($(basename "$TMP_FILE"))..."
-        curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" "${WHISPER_API_OPTIONS[@]}" | jq -r '.segments[].text' >> "${TRANSCRIPTION_FILE}.part"
+        SEGMENT_DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$TMP_FILE" || echo "0")
+        if [ -z "$SEGMENT_DURATION" ]; then
+            SEGMENT_DURATION=0
+        fi
+        if (( $(bc <<< "$SEGMENT_DURATION < 1") )); then
+            echo "Salto segmento $i/${#TMP_FILES[@]} ($(basename "$TMP_FILE")): durata troppo breve (${SEGMENT_DURATION}s)"
+        else
+            echo "Trascrivo segmento $i/${#TMP_FILES[@]} ($(basename "$TMP_FILE"))..."
+            curl_output="$(curl -s "$WHISPER_API" -H "Content-Type: multipart/form-data" -F file=@"${TMP_FILE}" "${WHISPER_API_OPTIONS[@]}")"
+            echo "$(echo "$curl_output" | wc -c) caratteri ricevuti"
+            echo "$curl_output"  | jq -r '.segments[].text' >> "${TRANSCRIPTION_FILE}.part"
+        fi
         i=$((i + 1))
     done
     cleanup "$TMP_SEGMENTS_DIR"
