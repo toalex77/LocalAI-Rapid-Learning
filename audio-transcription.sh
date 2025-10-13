@@ -42,9 +42,9 @@ cleanup() {
 
 trap_error() {
     echo "Errore durante l'esecuzione dello script."
-    if [ -e "${TRANSCRIPTION_FILE}" ]; then
+    if [ -e "${TRANSCRIPTION_FILE}.part" ]; then
         echo "Trascrizione parziale salvata in: ${TRANSCRIPTION_FILE%.*}_errore.${TRANSCRIPTION_FILE##*.}"
-        mv "${TRANSCRIPTION_FILE}" "${TRANSCRIPTION_FILE%.*}_errore.${TRANSCRIPTION_FILE##*.}"
+        mv "${TRANSCRIPTION_FILE}.part" "${TRANSCRIPTION_FILE%.*}_errore.${TRANSCRIPTION_FILE##*.}"
     fi
 }
 trap cleanup EXIT ERR
