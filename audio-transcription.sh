@@ -203,10 +203,8 @@ CURRENT_START=0
 CURRENT_END=0
 SEGMENT_SEARCH=0 # 0 = cerca inizio, 1 = cerca fine
 for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
-    read -r FLOAT_SEGMENT_START FLOAT_SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
-    SEGMENT_START=${FLOAT_SEGMENT_START%.*}
-    SEGMENT_END=${FLOAT_SEGMENT_END%.*}
-    if (( SEGMENT_START == SEGMENT_END )); then
+    read -r SEGMENT_START SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+    if (( $(bc <<< "$SEGMENT_START == $SEGMENT_END") )); then
         continue
     fi
     if [ $SEGMENT_SEARCH -eq 0 ]; then
@@ -215,15 +213,15 @@ for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
         SEGMENT_SEARCH=1
         continue
     fi
-    CURRENT_DURATION=$(( CURRENT_END - CURRENT_START ))
-    POTENTIAL_DURATION=$(( SEGMENT_END - CURRENT_START ))
+    CURRENT_DURATION=$(bc <<< "$CURRENT_END - $CURRENT_START")
+    POTENTIAL_DURATION=$(bc <<< "$SEGMENT_END - $CURRENT_START")
 
-    if (( POTENTIAL_DURATION <= MAX_DURATION )); then
+    if (( $(bc <<< "$POTENTIAL_DURATION <= $MAX_DURATION") )); then
         CURRENT_END=$SEGMENT_END
         continue
     fi
 
-    if (( CURRENT_DURATION >= MIN_DURATION )); then
+    if (( $(bc <<< "$CURRENT_DURATION >= $MIN_DURATION") )); then
         MERGED_SEGMENTS+=("$CURRENT_START $CURRENT_END")
         CURRENT_START=$SEGMENT_START
         CURRENT_END=$SEGMENT_END
