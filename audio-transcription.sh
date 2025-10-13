@@ -194,8 +194,8 @@ fi
 if [ $DEBUG -eq 1 ]; then
     echo "Segmenti validi rilevati:"
     for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
-        read -r FLOAT_SEGMENT_START FLOAT_SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
-        echo "Segmento $((i+1)): Da $(seconds_to_time "${FLOAT_SEGMENT_START%.*}") a $(seconds_to_time "${FLOAT_SEGMENT_END%.*}") - ${FLOAT_SEGMENT_START} - ${FLOAT_SEGMENT_END}"
+        read -r SEGMENT_START SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+        echo "Segmento $((i+1)): Da $(seconds_to_time "${SEGMENT_START}") a $(seconds_to_time "${SEGMENT_END}") - ${SEGMENT_START} - ${SEGMENT_END} - Durata: $(bc <<< "${SEGMENT_END} - ${SEGMENT_START}")"
     done
 fi
 MERGED_SEGMENTS=()
@@ -238,7 +238,7 @@ if [ $DEBUG -eq 1 ]; then
     echo "Spezzoni finali calcolati:"
     for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
         read -r start_time end_time <<< "${MERGED_SEGMENTS[i]}"
-        echo "Spezzone $((i+1)): Da $(seconds_to_time "${start_time%.*}") a $(seconds_to_time "${end_time%.*}") - ${start_time} - ${end_time}"
+        echo "Spezzone $((i+1)): Da $(seconds_to_time "${start_time}") a $(seconds_to_time "${end_time}") - ${start_time} - ${end_time} - Durata: $(bc <<< "${end_time} - ${start_time}")"
     done
 fi
 
@@ -261,14 +261,14 @@ for ((i=0; i<${#MERGED_SEGMENTS[@]}; i++)); do
 
 
     echo "Accodo spezzone $((i+1))/${#MERGED_SEGMENTS[@]}..."
-    echo "  Da: $(seconds_to_time "${start_time%.*}")"
-    echo "  A: $(seconds_to_time "${end_time%.*}")"
+    echo "  Da: $(seconds_to_time "${start_time}")"
+    echo "  A: $(seconds_to_time "${end_time}")"
 
     if [ $USE_WHISPER -eq 0 ]; then
         # Crea directory di output
         mkdir -p "$OUTPUT_DIR"
 
-        OUTPUT_FILE="$OUTPUT_DIR/spezzone_$(printf "%02d" $((i+1)))_$(seconds_to_time "${start_time%.*}" | tr ':' '-').${AUDIO_FORMAT}"
+        OUTPUT_FILE="$OUTPUT_DIR/spezzone_$(printf "%02d" $((i+1)))_$(seconds_to_time "${start_time}" | tr ':' '-').${AUDIO_FORMAT}"
         echo "  File: $(basename "$OUTPUT_FILE")"
 
         (
