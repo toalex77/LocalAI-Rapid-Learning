@@ -191,6 +191,13 @@ done <<< "$SILENCE_DATA"
 if (( $(bc <<< "$TOTAL_DURATION > $PREV_SILENCE_END") )); then
     VALID_SEGMENTS+=("$PREV_SILENCE_END $TOTAL_DURATION")
 fi
+if [ $DEBUG -eq 1 ]; then
+    echo "Segmenti validi rilevati:"
+    for ((i=0; i<${#VALID_SEGMENTS[@]}; i++)); do
+        read -r FLOAT_SEGMENT_START FLOAT_SEGMENT_END <<< "${VALID_SEGMENTS[i]}"
+        echo "Segmento $((i+1)): Da $(seconds_to_time "${FLOAT_SEGMENT_START%.*}") a $(seconds_to_time "${FLOAT_SEGMENT_END%.*}") - ${FLOAT_SEGMENT_START} - ${FLOAT_SEGMENT_END}"
+    done
+fi
 MERGED_SEGMENTS=()
 CURRENT_START=0
 CURRENT_END=0
