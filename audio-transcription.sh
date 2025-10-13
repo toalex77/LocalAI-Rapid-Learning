@@ -70,14 +70,14 @@ show_help() {
 
 # Funzione per convertire secondi in formato HH:MM:SS
 seconds_to_time() {
-    local seconds=$1
-    printf "%02d:%02d:%02d" $((seconds/3600)) $(((seconds%3600)/60)) $((seconds%60))
+    local seconds="${1%.*}"
+    printf "%02d:%02d:%02d" "$((seconds/3600))" "$(((seconds%3600)/60))" "$((seconds%60))"
 }
 
 # Funzione per convertire formato HH:MM:SS in secondi
 time_to_seconds() {
-    local time=$1
-    echo $time | awk -F: '{ print ($1 * 3600) + ($2 * 60) + $3 }'
+    local time="$1"
+    echo "$time" | awk -F: '{ print ($1 * 3600) + ($2 * 60) + $3 }'
 }
 
 # Parsing degli argomenti
