@@ -155,7 +155,7 @@ echo ""
 
 # Step 1: Rileva la durata totale del video
 echo "=== STEP 1: Analisi durata video ==="
-TOTAL_DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$INPUT_FILE" | cut -d. -f1)
+TOTAL_DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 "$INPUT_FILE")
 echo "Durata totale: $(seconds_to_time "$TOTAL_DURATION")"
 echo ""
 
