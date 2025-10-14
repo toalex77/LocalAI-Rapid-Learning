@@ -161,7 +161,7 @@ echo ""
 
 # Step 2: Rileva i silenzi
 echo "=== STEP 2: Rilevamento silenzi ==="
-echo "Rilevamento silenzi in corso... (può richiedere alcuni minuti)"
+echo "Rilevamento silenzi in corso..."
 SILENCE_OUTPUT="$(ffmpeg -nostdin -i "$INPUT_FILE" -vn -sn -dn -af "silencedetect=noise=${SILENCE_THRESHOLD}:d=${SILENCE_DURATION}" -f null - < /dev/null 2>&1 | grep "silence_\(start\|end\)")"
 SILENCE_DATA="$(echo "$SILENCE_OUTPUT" | grep "silence_\(start\|end\)" | sed 's/.*silence_\(start\|end\): \([0-9.]*\).*/\1: \2/')"
 if [ $DEBUG -eq 1 ]; then
