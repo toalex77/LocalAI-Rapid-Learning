@@ -35,7 +35,6 @@ LESSON_NAME="$2"
 TESTO_FILE="$3"
 
 # Leggo i contenuti
-TESTO=$(<"$TESTO_FILE")
 PROMPT_TITLE=$(head -n 1 "$PROMPT_FILE")
 PROMPT=$(tail -n +2 "$PROMPT_FILE")
 PROMPT="${PROMPT/\%LESSON_NAME\%/$LESSON_NAME}"
@@ -47,27 +46,30 @@ MODEL="gpt-oss-20b"
 BACKEND="vulkan-llama-cpp"
 API_ENDPOINT="http://localhost:8080/v1/chat/completions"
 
-JSON_PAYLOAD=$(jq -n \
+echo "Inizio generazione del file: ${PROMPT_TITLE}.odt"
+# Esegue la chiamata API, recupera il risultato e converte in ODT
+jq -n \
   --arg backend "${BACKEND}" \
   --arg model "${MODEL}" \
   --arg prompt "$PROMPT" \
-  --arg testo "$TESTO" \
   --arg language "it" \
+  --rawfile testo "$TESTO_FILE" \
   '{
      model: $model,
      messages: [
        {role: "system", content: $prompt},
        {role: "user", content: $testo}
      ]
-   }')
-
-
-# Richiesta alle API
-RESPONSE=$(curl -s "${API_ENDPOINT}" \
-  -H "Content-Type: application/json" \
-  -d "$JSON_PAYLOAD")
-
-# Estrai solo il testo della risposta con jq
-echo "$RESPONSE" | jq -r '.choices[0].message.content' | sed ':a;N;$!ba;s/<|channel|>.*<|message|>//' | pandoc --lua-filter <(echo "$LINE_BREAK_LUA_FILTER") --metadata lang=it-IT -f markdown -t odt -o "${PROMPT_TITLE}.odt"
+   }' | \
+curl -s "${API_ENDPOINT}" \
+     -H "Content-Type: application/json" \
+     -d @- | \
+jq -r '.choices[0].message.content' | \
+sed ':a;N;$!ba;s/<|channel|>.*<|message|>//' | \
+pandoc --lua-filter <(echo "$LINE_BREAK_LUA_FILTER") \
+       --metadata lang=it-IT \
+       -f markdown \
+       -t odt \
+       -o "${PROMPT_TITLE}.odt"
 
 echo "Risultato salvato in: ${PROMPT_TITLE}.odt"
