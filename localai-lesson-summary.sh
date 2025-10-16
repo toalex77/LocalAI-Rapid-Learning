@@ -61,34 +61,53 @@ if [ -z "$PROMPT_TITLE" ]; then
   echo "Impossibile determinare il nome del file di destinazione."
   exit 1
 fi
-MODEL="gpt-oss-20b"
-BACKEND="vulkan-llama-cpp"
-API_ENDPOINT="http://localhost:8080/v1/chat/completions"
 
 echo "Inizio generazione del file: ${PROMPT_TITLE}.odt"
 # Esegue la chiamata API, recupera il risultato e converte in ODT
-jq -n \
-  --arg backend "${BACKEND}" \
-  --arg model "${MODEL}" \
-  --arg prompt "$PROMPT" \
-  --arg language "it" \
-  --rawfile testo "$TESTO_FILE" \
-  '{
-     model: $model,
-     messages: [
-       {role: "system", content: $prompt},
-       {role: "user", content: $testo}
-     ]
-   }' | \
-curl -s "${API_ENDPOINT}" \
-     -H "Content-Type: application/json" \
-     -d @- | \
-jq -r '.choices[0].message.content' | \
-sed ':a;N;$!ba;s/<|channel|>.*<|message|>//' | \
-pandoc --lua-filter <(echo "$LINE_BREAK_LUA_FILTER") \
-       --metadata lang=it-IT \
-       -f markdown \
-       -t odt \
-       -o "${PROMPT_TITLE}.odt"
+(
+  jq -n \
+    --arg backend "${BACKEND}" \
+    --arg model "${MODEL}" \
+    --arg prompt "$PROMPT" \
+    --arg language "it" \
+    --rawfile testo "$TESTO_FILE" \
+    '{
+      model: $model,
+      messages: [
+        {role: "system", content: $prompt},
+        {role: "user", content: $testo}
+      ]
+    }' | \
+  curl -s "${API_ENDPOINT}" \
+      -H "Content-Type: application/json" \
+      -d @- | \
+  jq -r '.choices[0].message.content' | \
+  sed ':a;N;$!ba;s/<|channel|>.*<|message|>//' | \
+  pandoc --lua-filter <(echo "$LINE_BREAK_LUA_FILTER") \
+        --metadata lang=it-IT \
+        -f markdown \
+        -t odt \
+        -o "${PROMPT_TITLE}.odt"
+) &
+PIPE_PID=$!
 
+# Spinner ASCII
+frames=("( ●    )" "(  ●   )"	"(   ●  )" "(    ● )" "(     ●)" "(    ● )"	"(   ●  )" "(  ●   )" "( ●    )" "(●     )")
+i=0
+trap 'kill "$PIPE_PID" 2>/dev/null || true; wait "$PIPE_PID" 2>/dev/null; exit 1' INT TERM
+
+while kill -0 "$PIPE_PID" 2>/dev/null; do
+  printf "\rIn attesa di risposta %s" "${frames[i]}"
+  i=$(( (i + 1) % ${#frames[@]} ))
+  sleep 0.12
+done
+
+wait "$PIPE_PID"
+STATUS=$?
+
+printf "\r"
+if [ $STATUS -ne 0 ]; then
+  echo "Errore nella generazione (exit $STATUS)"
+  exit $STATUS
+fi
 echo "Risultato salvato in: ${PROMPT_TITLE}.odt"
