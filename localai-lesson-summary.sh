@@ -5,7 +5,7 @@ BACKEND="vulkan-llama-cpp"
 API_ENDPOINT="http://localhost:8080/v1/chat/completions"
 
 # Controlla la presenza delle dipendenze
-for cmd in jq curl; do
+for cmd in date pandoc sed jq curl; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "Errore: comando '$cmd' non trovato"; exit 1; }
 done
 
