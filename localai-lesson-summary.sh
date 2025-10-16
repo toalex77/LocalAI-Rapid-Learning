@@ -1,9 +1,18 @@
 #!/bin/bash
+set -euo pipefail
+MODEL="gpt-oss-20b"
+BACKEND="vulkan-llama-cpp"
+API_ENDPOINT="http://localhost:8080/v1/chat/completions"
+
+# Controlla la presenza delle dipendenze
+for cmd in jq curl; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "Errore: comando '$cmd' non trovato"; exit 1; }
+done
 
 LOCALAI=0
 
 if [ -n "$(docker container ls -f name=aio-gpu-vulkan-api -q)" ]; then
-    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq '.data[] | select(.id == "gpt-oss-20b")' 2>/dev/null)" ]; then
+    if [ -n "$(curl -s http://localhost:8080/v1/models 2>/dev/null| jq --arg model $MODEL'.data[] | select(.id == $model)' 2>/dev/null)" ]; then
         LOCALAI=1
     fi
 fi
@@ -20,7 +29,7 @@ if [ $# -lt 3 ]; then
     exit 1
 fi
 
-read -r -d '' LINE_BREAK_LUA_FILTER <<'EOF'
+read -r LINE_BREAK_LUA_FILTER <<'EOF'
 --- Transform a raw HTML element which contains only a `<br>`
 -- into a format-indepentent line break.
 function RawInline (el)
@@ -33,6 +42,16 @@ EOF
 PROMPT_FILE="$1"
 LESSON_NAME="$2"
 TESTO_FILE="$3"
+
+if [ ! -f "$PROMPT_FILE" ]; then
+  echo "File di prompt non trovato: $PROMPT_FILE"
+  exit 1
+fi
+
+if [ ! -f "$TESTO_FILE" ]; then
+  echo "Trascrizione della lezione non trovata: $TESTO_FILE"
+  exit 1
+fi
 
 # Leggo i contenuti
 PROMPT_TITLE=$(head -n 1 "$PROMPT_FILE")
