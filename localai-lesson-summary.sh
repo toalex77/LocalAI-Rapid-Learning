@@ -61,8 +61,9 @@ if [ -z "$PROMPT_TITLE" ]; then
   echo "Impossibile determinare il nome del file di destinazione."
   exit 1
 fi
-
+echo "Lezione: $LESSON_NAME"
 echo "Inizio generazione del file: ${PROMPT_TITLE}.odt"
+START_TIME=$(date +%s)
 # Esegue la chiamata API, recupera il risultato e converte in ODT
 (
   jq -n \
@@ -92,22 +93,55 @@ echo "Inizio generazione del file: ${PROMPT_TITLE}.odt"
 PIPE_PID=$!
 
 # Spinner ASCII
-frames=("( ●    )" "(  ●   )"	"(   ●  )" "(    ● )" "(     ●)" "(    ● )"	"(   ●  )" "(  ●   )" "( ●    )" "(●     )")
+frames=("( ●    )" \
+        "(  ●   )" \
+        "(   ●  )" \
+        "(    ● )" \
+        "(     ●)" \
+        "(    ● )" \
+        "(   ●  )" \
+        "(  ●   )" \
+        "( ●    )" \
+        "(●     )")
 i=0
 trap 'kill "$PIPE_PID" 2>/dev/null || true; wait "$PIPE_PID" 2>/dev/null; exit 1' INT TERM
 
+# Nasconde il cursore
+printf '\033[?25l'
+
+# Spinner e tempo trascorso
 while kill -0 "$PIPE_PID" 2>/dev/null; do
-  printf "\rIn attesa di risposta %s" "${frames[i]}"
+  now=$(date +%s)
+  elapsed=$((now - START_TIME))
+  hours=$((elapsed / 3600))
+  minutes=$(((elapsed % 3600) / 60))
+  seconds=$((elapsed % 60))
+  printf "\rIn attesa di risposta %s\nTempo trascorso: %02d:%02d:%02d" "${frames[i]}" "$hours" "$minutes" "$seconds"
+  printf "\033[1A"
+
   i=$(( (i + 1) % ${#frames[@]} ))
-  sleep 0.12
+  sleep 0.20
 done
 
 wait "$PIPE_PID"
 STATUS=$?
 
-printf "\r"
+# Ripristina il cursore
+printf '\033[?25h'
+
+# Pulisce le righe dello spinner prima di stampare i risultati finali
+printf "\r\033[K"
+
 if [ $STATUS -ne 0 ]; then
   echo "Errore nella generazione (exit $STATUS)"
   exit $STATUS
 fi
+
+# Calcola e mostra il tempo totale impiegato
+END_TIME=$(date +%s)
+TOTAL=$((END_TIME - START_TIME))
+TH=$((TOTAL / 3600))
+TM=$(((TOTAL % 3600) / 60))
+TS=$((TOTAL % 60))
 echo "Risultato salvato in: ${PROMPT_TITLE}.odt"
+echo "Tempo totale impiegato: $(printf "%02d:%02d:%02d" $TH $TM $TS)"
